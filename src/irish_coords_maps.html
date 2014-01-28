@@ -8,7 +8,6 @@
 		body { font-family: sans-serif; }
 		h1 { font-family: sans-serif; }
 		p { font-family: sans-serif; } 
-		 }
 	 </style>
 	 
 	<link rel="stylesheet" href="http://cdn.leafletjs.com/leaflet-0.5/leaflet.css" />
@@ -85,11 +84,6 @@ function cmdConvertCoordinates() {
 			// Coordinates are Irish Grid.  Need to convert to WGS84
 			var convResult = TM2Geo(east, north, OSIG); // OS Irish Grid -> OS Ireland 65 Geodetic
 			var convResult2 = OSI652WGS84(convResult.latitude, convResult.longitude); // OS Ireland 65 Geodetic -> WGS84/ETRS89 Geodetic
-			//var convResult3 = Geo2TM(convResult2.latitude, convResult2.longitude, ITMG); // WGS84/ETRS89 Geodetic -> Irish Transverse Mercator
-			//var latt = RoundDec(rad2deg(convResult2.latitude), 8);
-			//var lonn = RoundDec(rad2deg(convResult2.longitude), 8);
-			//east = RoundDec(convResult3.eastings, 3);
-			//north = RoundDec(convResult3.northings, 3);
 
 			coordinatesObj=new Object();
 			coordinatesObj.east=east;
