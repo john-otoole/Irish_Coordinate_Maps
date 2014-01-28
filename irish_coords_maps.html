@@ -1,0 +1,458 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
+
+<head>
+	<meta http-equiv="content-type" content="text/html; charset=utf-8">
+	<title>Convert ITM/ING to WGS84</title>
+
+	<style type="text/css">
+		body { font-family: sans-serif; }
+		h1 { font-family: sans-serif; }
+		p { font-family: sans-serif; } 
+		 }
+	 </style>
+	 
+	<link rel="stylesheet" href="http://cdn.leafletjs.com/leaflet-0.5/leaflet.css" />
+	<!--[if lte IE 8]>
+			<link rel="stylesheet" href="http://cdn.leafletjs.com/leaflet-0.5/leaflet.ie.css" />
+	<![endif]-->
+
+	<script src="http://cdn.leafletjs.com/leaflet-0.5/leaflet.js"></script>
+		
+	<script type="text/javascript" src="http://maps.googleapis.com/maps/api/js?key=AIzaSyBFI9mvM64Rsa2TAapo7jV1wfA-PSdHbG0&sensor=false"></script>
+	<script type="text/javascript" src="http://ecn.dev.virtualearth.net/mapcontrol/mapcontrol.ashx?v=7.0"></script>
+	
+	<!-- Load Fieldenmaps Coordinate conversion libraries -->
+	<script language="JavaScript" type="text/javascript" src="http://www.fieldenmaps.info/cconv/web/cconv_defs.js"></script>
+	<script language="JavaScript" type="text/javascript" src="http://www.fieldenmaps.info/cconv/web/cconv_func.js"></script>
+	<script language="JavaScript" type="text/javascript" src="http://www.fieldenmaps.info/cconv/web/cconv_trans.js"></script>
+	<script language="JavaScript" type="text/javascript" src="http://www.fieldenmaps.info/cconv/web/cconv_params.js"></script> 
+
+	<script language="JavaScript" type="text/javascript">
+	
+// Declare global variables
+var bingMap = null;
+var googleMap = null;
+var osmMap = null;
+var zoomLevel = 16;
+var coordSys = 'ITM';
+
+function cmdConvertCoordinates() {
+// Function to parse the contents of "txtCoordinates" and convert to WGS84 if possible
+// Returns an object containing the ITM and WGS84 coordinates
+
+	var i = document.getElementById("cmbCoordSys").selectedIndex;
+	coordSys = document.getElementById("cmbCoordSys").options[i].value;
+	console.log("User has selected coordSys " + coordSys);
+	
+	var coord = document.getElementById("txtCoordinates").value;
+	var coord_array = coord.split(',');
+	
+	// Check that txtCoordinates contains something
+	if (!coord)  
+	{
+		alert("No coordinates found - enter coordinates in ITM or Irish Grid separated by exactly one comma.");
+		return;
+	}
+	
+	// Check that the input coordinates contain exactly one comma. "g" causes a full string search
+	if (!coord.match(/,/g) || coord.match(/,/g).length != 1)
+	{
+		alert("The input coordinate string must contain two sets of numbers separated by exactly one comma.");
+		return;	
+	}
+	
+	var east = coord_array[0].replace(/^\s*/, "").replace(/\s*$/, ""); // Trim the excess whitespace
+	var north = coord_array[1].replace(/^\s*/, "").replace(/\s*$/, "");
+
+	// Check that the East/North strings are actual numbers.
+	if (isNaN(east)) 
+	{
+		alert(east + " is not a valid number");
+		return;
+	}
+	else if (isNaN(north))
+	{
+		alert(north + " is not a valid number");
+		return;
+	}
+	console.log("East " + east + " North " + north + " coordSys " + coordSys);
+	
+	// Now do the conversion to WGS84/ETRS89 Geodetic
+	if (coordSys == 'IG')
+	{
+		if (east >= 0 && east < 400000 && north >= 0 && north < 500000) 
+		{
+			// Coordinates are Irish Grid.  Need to convert to WGS84
+			var convResult = TM2Geo(east, north, OSIG); // OS Irish Grid -> OS Ireland 65 Geodetic
+			var convResult2 = OSI652WGS84(convResult.latitude, convResult.longitude); // OS Ireland 65 Geodetic -> WGS84/ETRS89 Geodetic
+			//var convResult3 = Geo2TM(convResult2.latitude, convResult2.longitude, ITMG); // WGS84/ETRS89 Geodetic -> Irish Transverse Mercator
+			//var latt = RoundDec(rad2deg(convResult2.latitude), 8);
+			//var lonn = RoundDec(rad2deg(convResult2.longitude), 8);
+			//east = RoundDec(convResult3.eastings, 3);
+			//north = RoundDec(convResult3.northings, 3);
+
+			coordinatesObj=new Object();
+			coordinatesObj.east=east;
+			coordinatesObj.north=north;
+			coordinatesObj.latt=latt;
+			coordinatesObj.lonn=lonn;	
+			return coordinatesObj;			
+		}
+		else
+		{
+			alert("Coordinates don't appear to be Irish Grid (x between 0-400000, y between 0-500000)");
+			return;				
+		}
+	}
+	else if (coordSys == 'ITM')
+	{
+		if (east >= 400000 && east < 750000 && north >= 500000 && north < 1000000)
+		{
+			// Coordinates are Irish Transverse Mercator.  Need to convert to WGS84
+			var convResult = TM2Geo(east, north, ITMG); // Irish Transverse Mercator -> WGS84/ETRS89 Geodetic
+			var latt = RoundDec(rad2deg(convResult.latitude), 8);
+			var lonn = RoundDec(rad2deg(convResult.longitude), 8);
+
+			coordinatesObj=new Object();
+			coordinatesObj.east=east;
+			coordinatesObj.north=north;
+			coordinatesObj.latt=latt;
+			coordinatesObj.lonn=lonn;		
+			return coordinatesObj;
+		}
+		else
+		{
+			alert("Coordinates don't appear to be ITM (x between 400000-750000, y between 500000-1000000)");
+			return;
+		}
+	}
+}
+
+function cmdOpenMap() {
+	// Function which first calls cmdConvertCoordinates() and then opens the map page for the selected map service, passing in the coordiantes
+	var coordinatesObj = cmdConvertCoordinates();
+	
+	// Only continue if cmdConvertCoordinates() returned something useful
+	if (!isEmpty(coordinatesObj))
+	{
+		// Get the selected map service
+		var i = document.getElementById("cmbMapService").selectedIndex;
+		var MapService = document.getElementById("cmbMapService").options[i].value;
+
+		switch (MapService)
+		{
+		case 'Google':
+			getGoogleMap(coordinatesObj.latt, coordinatesObj.lonn, zoomLevel);
+			document.getElementById('new_window_url').innerHTML='<a href="http://maps.google.com/maps?q=' + coordinatesObj.latt + ',' + coordinatesObj.lonn + '&z=' + zoomLevel + '&t=h" target="_blank">Open Google map in new window</a>';		// zoom level 18, type = hybrid
+			break;
+		case 'Bing':
+			getBingMap(coordinatesObj.latt, coordinatesObj.lonn, zoomLevel);
+			document.getElementById('new_window_url').innerHTML='<a href="http://www.bing.com/maps/?v=2&cp=' + coordinatesObj.latt + '~' + coordinatesObj.lonn + '&lvl=' + zoomLevel + '&dir=0&sty=h&eo=1&where1=' + coordinatesObj.latt + '%2C ' + coordinatesObj.lonn + '" target="_blank">Open Bing map in new window</a>';		
+			break;
+		case 'OSM':
+			getOSM(coordinatesObj.latt, coordinatesObj.lonn, zoomLevel);
+			document.getElementById('new_window_url').innerHTML='<a href="http://www.openstreetmap.org/?lat=' + coordinatesObj.latt + '&lon=' + coordinatesObj.lonn + '&zoom=' + zoomLevel + '&&layers=M" target="_blank">Open OpenStreetMap in new window</a>';
+			break;		
+		default:
+			null;
+		}		
+	}
+	else
+	{
+		//console.log("coordinatesObj is empty");
+		null;
+	}
+
+}
+
+function calcITMorIG(latt, lonn)
+{
+	var i = document.getElementById("cmbCoordSys").selectedIndex;
+	coordSys = document.getElementById("cmbCoordSys").options[i].value;
+	
+	if (coordSys == 'ITM')
+	{
+		var getinput = new geodesic(deg2rad(RoundDec(latt, 8)), deg2rad(RoundDec(Math.abs(lonn), 8)*-1));
+		var cooresult = Geo2TM(getinput.latitude, getinput.longitude, ITMG);
+		var itmE = RoundDec(cooresult.eastings, 3);
+		var itmN = RoundDec(cooresult.northings, 3);	
+		
+		if (itmE >= 400000 && itmE < 750000 && itmN >= 500000 && itmN < 1000000) { 
+			return itmE + ", " + itmN; 
+		} else { 
+			return "outside_itm_range";	
+		}
+	}	
+	else
+	{
+		// Need to update this to get it to Calc Irish Grid
+		var getinput = new geodesic(deg2rad(RoundDec(latt, 8)), deg2rad(RoundDec(Math.abs(lonn), 8)*-1));
+		var cooresult = Geo2TM(getinput.latitude, getinput.longitude, ITMG);
+		var itmE = RoundDec(cooresult.eastings, 3);
+		var itmN = RoundDec(cooresult.northings, 3);	
+		
+		if (itmE >= 400000 && itmE < 750000 && itmN >= 500000 && itmN < 1000000) { 
+			return itmE + ", " + itmN; 
+		} else { 
+			return "outside_itm_range";	
+		}
+	}
+}
+
+function isEmpty(ob){
+// Function to check if an object is null
+   for(var i in ob){ if(ob.hasOwnProperty(i)){return false;}}
+  return true;
+}
+
+function searchKeyPress(e) {
+	// When the user clicks ENTER in the text box, this function is called
+	// look for window.event in case event isn't passed in
+	if (typeof e == 'undefined' && window.event) { e = window.event; }
+	if (e.keyCode == 13)
+	{
+			cmdOpenMap();
+	}
+}
+
+function switchDiv(divToTurnOn) {
+	// Function to show one Div and hide the others
+	var google_map_canvas = document.getElementById('google_map_canvas');
+	var bing_map_canvas = document.getElementById('bing_map_canvas');	
+	var osm_map_canvas = document.getElementById('osm_map_canvas');	
+	
+	switch (divToTurnOn)
+	{
+	case 'Google':
+		google_map_canvas.style.display = "block";
+		bing_map_canvas.style.display = "none";
+		osm_map_canvas.style.display = "none";
+		break;
+	case 'Bing':
+		google_map_canvas.style.display = "none";
+		bing_map_canvas.style.display = "block";
+		osm_map_canvas.style.display = "none";
+		break;
+	case 'OSM':
+		google_map_canvas.style.display = "none";
+		bing_map_canvas.style.display = "none";
+		osm_map_canvas.style.display = "block";
+		break;		
+	default:
+		null;
+	}	
+} 
+
+
+// 
+// Start Google maps specific code
+//
+function getGoogleMap(inLatt, inLonn, inZoom) {
+	switchDiv('Google');
+	
+  var mapOptions = {
+    center: new google.maps.LatLng(inLatt,inLonn),
+    zoom: inZoom,
+		panControl: true,
+		streetViewControl: true,
+		overviewMapControl: false,
+    mapTypeId: google.maps.MapTypeId.HYBRID 
+  };
+		
+  googleMap = new google.maps.Map(document.getElementById('google_map_canvas'), mapOptions);
+
+	// Add an event handler to fire on the "dragend" event
+	google.maps.event.addListener(googleMap, 'dragend', function () {
+    // Update the Lat/Long Fields
+		displayGoogleLatLon(googleMap.getCenter());
+	});
+
+	// Add an event handler to fire on the "bounds_changed" event
+	google.maps.event.addListener(googleMap, 'bounds_changed', function () {
+    // Update the Lat/Long Fields
+		displayGoogleLatLon(googleMap.getCenter());
+	});
+
+}
+
+function displayGoogleLatLon (mapCenter) { 
+  
+	var latt = mapCenter.lat().toFixed(8);
+	var lonn = mapCenter.lng().toFixed(8);	
+	
+	zoomLevel = googleMap.getZoom();
+	
+	var itm = calcITMorIG(latt, lonn);
+	if (itm != "outside_itm_range")
+	{
+		document.getElementById("txtCoordinates").value = itm;
+		document.getElementById('new_window_url').innerHTML='<a href="http://maps.google.com/maps?q=' + latt + ',' + lonn + '&z=' + zoomLevel + '&t=h" target="_blank">Open Google map in new window</a>';		// zoom level 18, type = hybrid		
+		document.getElementById("output").innerHTML = "WGS84:" + RoundDec(latt,6) + ", " + RoundDec(lonn,6) + " ITM: " + itm + " Zoom: <em>" + zoomLevel; 
+	}
+	else
+	{
+		document.getElementById('new_window_url').innerHTML='<a href="http://maps.google.com/maps?q=' + latt + ',' + lonn + '&z=' + zoomLevel + '&t=h" target="_blank">Open Google map in new window</a>';		// zoom level 18, type = hybrid			
+		document.getElementById("output").innerHTML = "Zoom: " + zoomLevel + " WGS84: " + RoundDec(latt,6) + ", " + RoundDec(lonn,6) + " ITM is outside range."
+	}
+}
+
+// 
+// End Google maps specific code
+//
+
+// 
+// Start Bing maps specific code
+//
+function getBingMap(inLatt, inLonn, inZoom)
+{
+	switchDiv('Bing');
+	bingMap = new Microsoft.Maps.Map(
+        document.getElementById('bing_map_canvas'),
+        {
+            credentials: 'Anvdsn45JTulqaulcJuKuLjmtygImjGHJWNGCmKUDpQmqNzU_6In-LafK0vKqBJp',
+            mapTypeId: Microsoft.Maps.MapTypeId.aerial
+        }
+    );
+
+	// Zoom the map
+	bingMap.setView({zoom: inZoom, center: new Microsoft.Maps.Location(inLatt, inLonn)});		
+
+	// Add an event handler to fire on map clicks
+  var viewchangeend=Microsoft.Maps.Events.addHandler(bingMap, 'viewchangeend', function(e)
+	{
+		displayBingLatLon(bingMap.getCenter().latitude, bingMap.getCenter().longitude);
+	});
+}
+
+
+function displayBingLatLon (inLatt, inLonn) 
+{
+	zoomLevel = bingMap.getZoom();		
+	var itm = calcITMorIG(inLatt, inLonn);
+	if (itm != "outside_itm_range")
+	{
+		document.getElementById("txtCoordinates").value = itm;
+		document.getElementById('new_window_url').innerHTML='<a href="http://www.bing.com/maps/?v=2&cp=' + inLatt + '~' + inLonn + '&lvl=' + zoomLevel + '&dir=0&sty=h&eo=1&where1=' + inLatt + '%2C ' + inLonn + '" target="_blank">Open Bing map in new window</a>';		
+		document.getElementById("output").innerHTML = "WGS84: " + RoundDec(inLatt,6) + ", " + RoundDec(inLonn,6) + " ITM: " + itm + 
+		" Zoom: " + zoomLevel; 
+	}
+	else
+	{
+		document.getElementById('new_window_url').innerHTML='<a href="http://www.bing.com/maps/?v=2&cp=' + inLatt + '~' + inLonn + '&lvl=' + zoomLevel + '&dir=0&sty=h&eo=1&where1=' + inLatt + '%2C ' + inLonn + '" target="_blank">Open Bing map in new window</a>';		
+		document.getElementById("output").innerHTML = "Zoom: " + zoomLevel + " WGS84: " + RoundDec(inLatt,6) + ", " + RoundDec(inLonn,6) + " ITM is outside range."
+	}
+}
+// 
+// End Bing maps specific code
+//
+
+// 
+// Start OpenStreetMap specific code
+//
+function getOSM(inLatt, inLonn, inZoom) {
+	
+	switchDiv('OSM');
+	
+	if (isEmpty(osmMap))
+	{
+		console.log("osmMap is not defined");
+		osmMap = new L.Map('osm_map_canvas');
+		var mqTiles			= "http://{s}.mqcdn.com/tiles/1.0.0/osm/{z}/{x}/{y}.png";
+		var mqSubDomains = ['otile1','otile2','otile3','otile4'];
+
+		var mapTiles	= mqTiles,
+			attribution	= "Data, imagery and map information provided by <a href=\"http://open.mapquest.co.uk\" target=\"_blank\">MapQuest</a>, <a href=\"http://www.openstreetmap.org/\" target=\"_blank\">OpenStreetMap</a> and contributors, <a href=\"http://creativecommons.org/licenses/by-sa/2.0/\" target=\"_blank\">CC-BY-SA</a>",
+			mapCanvas	= new L.TileLayer(mapTiles, {
+				maxZoom: 18, 
+				attribution: attribution,
+				subdomains: mqSubDomains
+			});
+		osmMap.setView(new L.LatLng(inLatt,inLonn), inZoom).addLayer(mapCanvas);	
+	}
+	else
+	{
+		console.log("osmMap is already defined");
+		// Map is already defined so just zoom to it
+		osmMap.setView(new L.LatLng(inLatt,inLonn), inZoom);
+	}
+
+	// Add an event handler to fire on the "moveend" event
+	osmMap.on('moveend', displayOSMLatLon);
+	
+}
+
+function displayOSMLatLon () { 
+
+	var latt = osmMap.getCenter().lat.toFixed(8);
+	var lonn = osmMap.getCenter().lng.toFixed(8);	
+	zoomLevel = osmMap.getZoom();
+	
+	var itm = calcITMorIG(latt, lonn);
+	if (itm != "outside_itm_range")
+	{
+		document.getElementById("txtCoordinates").value = itm;
+		document.getElementById('new_window_url').innerHTML='<a href="http://www.openstreetmap.org/?lat=' + latt + '&lon=' + lonn + '&zoom=' + zoomLevel + '&&layers=M" target="_blank">Open OpenStreetMap in new window</a>';
+		document.getElementById("output").innerHTML = "WGS84: " + RoundDec(latt,6) + ", " + RoundDec(lonn,6) + " ITM: " + itm + " Zoom: " + zoomLevel; 
+	}
+	else
+	{
+		document.getElementById('new_window_url').innerHTML='<a href="http://www.openstreetmap.org/?lat=' + latt + '&lon=' + lonn + '&zoom=' + zoomLevel + '&&layers=M" target="_blank">Open OpenStreetMap in new window</a>';	
+		document.getElementById("output").innerHTML = "Zoom: " + zoomLevel + " WGS84: " + RoundDec(latt,6) + ", " + RoundDec(lonn,6) + " ITM is outside range."
+	}
+
+}
+
+// 
+// End OpenStreetMap specific code
+//
+
+</script>  	 
+
+</head>
+
+<body onload="cmdOpenMap()">
+
+<table align="left" cellpadding="0" border="0">
+	<tr>
+		<td>
+			Enter <em>ITM (<a href="http://spatialreference.org/ref/epsg/2157/" target="_blank">EPSG:2157</a>)</em> or <em>IG (<a href="http://spatialreference.org/ref/epsg/29903/" target="_blank">EPSG:29903</a>)</em> coordinates separated by a comma 
+			
+			<input type="text" size="20" value="715949, 734396" id="txtCoordinates" maxlength=50"  onkeypress="searchKeyPress(event);" >
+		</td>
+		<td>
+			<select id="cmbCoordSys">
+				<option selected value="ITM">ITM</option>
+				<option value="IG">IG</option>
+			</select>	
+			<select id="cmbMapService" onChange="cmdOpenMap();">
+				<option selected value="Google">Google Maps</option>
+				<option value="Bing">Bing Maps</option>
+				<option value="OSM">OpenStreetMap</option>
+			</select>
+			<button type="button" onClick="cmdOpenMap();">Go</button>			
+		</td>
+	</tr>
+
+</table>
+
+<div id='google_map_canvas' style="position:relative; width:100%; height:650px; display: block; overflow:hidden"></div>
+<div id='bing_map_canvas' style="position:relative; width:100%; height:650px; display: none; overflow:hidden"></div>
+<div id='osm_map_canvas' style="position:relative; width:100%; height:650px; display: none; overflow:hidden"></div>
+
+<table align="left" cellpadding="0" border="0" width="100%">
+	<tr>
+		<td align="left">
+			<div id='output'>&nbsp;</div>
+		</td>
+		<td align="right">
+			<div id='new_window_url'>&nbsp;</div> 
+		</td>
+	</tr>
+</table>
+<hr>
+<small>Developed by <a href="http://ie.linkedin.com/pub/john-o-toole/b/92/849" target="_blank">John O'Toole</a> using coordinate transformations from <a href="http://www.fieldenmaps.info" target="_blank">FieldenMaps.info</a><small>
+
+
+
+</body>
+</html>
